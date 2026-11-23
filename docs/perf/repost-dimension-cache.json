@@ -1,0 +1,281 @@
+{
+ "dataset": {
+  "stock_ledger_entries": 3999,
+  "gl_entries": 1568,
+  "item": "PERF-ITEM-004",
+  "item_ledger_rows_all_warehouses": 249
+ },
+ "backdated_submit": {
+  "seconds": 0.372,
+  "queries": 137,
+  "query_seconds": 0.079,
+  "top": [
+   {
+    "count": 1,
+    "seconds": 0.005,
+    "shape": "commit"
+   },
+   {
+    "count": 1,
+    "seconds": 0.004,
+    "shape": "SELECT `name` FROM `tabCost Center Allocation` WHERE `docstatus`=? AND `company`=%(param1)s AND `valid_from`<=%(param2)s AND `main_cost_cent"
+   },
+   {
+    "count": 2,
+    "seconds": 0.003,
+    "shape": "SELECT `item_code`,`warehouse`,COUNT(`name`) `total_row` FROM `tabStock Ledger Entry` WHERE `warehouse`=%(param1)s AND `item_code` IN (%(par"
+   },
+   {
+    "count": 6,
+    "seconds": 0.003,
+    "shape": "SELECT `module`,`custom`,`is_tree` FROM `tabDocType` WHERE `name`=%(param1)s ORDER BY `creation` DESC LIMIT ?"
+   },
+   {
+    "count": 1,
+    "seconds": 0.002,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `stock_queue`=CONCAT(%(param1)s,`qty_after_transaction`+?,%(param2)s,CASE WHEN `qty_after_transaction`+?<"
+   },
+   {
+    "count": 5,
+    "seconds": 0.002,
+    "shape": "SELECT `label`,`fieldname`,`disabled`,`document_type` FROM `tabAccounting Dimension` WHERE `disabled`=? ORDER BY `creation` ASC"
+   },
+   {
+    "count": 5,
+    "seconds": 0.002,
+    "shape": "SELECT `name` FROM `tabCurrency` WHERE `name`=%(param1)s LIMIT ?"
+   },
+   {
+    "count": 2,
+    "seconds": 0.002,
+    "shape": "INSERT INTO `tabGL Entry` (`name`, `owner`, `creation`, `modified`, `modified_by`, `docstatus`, `idx`, `posting_date`, `transaction_date`, `"
+   },
+   {
+    "count": 4,
+    "seconds": 0.002,
+    "shape": "SELECT `value` FROM `tabSingles` WHERE `doctype`=%(param1)s AND `field`=%(param2)s"
+   },
+   {
+    "count": 2,
+    "seconds": 0.001,
+    "shape": "SELECT `name` FROM `tabUOM` WHERE `name`=%(param1)s LIMIT ?"
+   },
+   {
+    "count": 3,
+    "seconds": 0.001,
+    "shape": "SELECT MAX(`period_end_date`) FROM `tabPeriod Closing Voucher` WHERE `docstatus`=? AND `company`=%(param1)s ORDER BY `creation` DESC LIMIT ?"
+   },
+   {
+    "count": 3,
+    "seconds": 0.001,
+    "shape": "SELECT `name` FROM `tabItem` WHERE `name` IN (%(param1)s) AND `is_stock_item`=? ORDER BY `creation` DESC"
+   }
+  ],
+  "profile": "         259578 function calls (253705 primitive calls) in 0.371 seconds\n\n   Ordered by: cumulative time\n   List reduced from 1889 to 613 due to restriction <'erpnext/|frappe/database'>\n   List reduced from 613 to 25 due to restriction <25>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        1    0.000    0.000    0.173    0.173 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:767(on_submit)\n        1    0.000    0.000    0.075    0.075 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:337(make_gl_entries)\n      137    0.002    0.000    0.074    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:200(sql)\n      137    0.000    0.000    0.068    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:390(execute_query)\n       94    0.001    0.000    0.059    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:614(get_values)\n        1    0.000    0.000    0.056    0.056 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:2862(update_stock_ledger)\n        1    0.000    0.000    0.052    0.052 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:1646(make_sl_entries)\n       85    0.000    0.000    0.051    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:536(get_value)\n        2    0.000    0.000    0.047    0.024 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:161(make_sl_entries)\n        1    0.000    0.000    0.047    0.047 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:30(make_gl_entries)\n        2    0.000    0.000    0.046    0.023 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:337(validate)\n       90    0.001    0.000    0.039    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:225(get_query)\n        1    0.000    0.000    0.034    0.034 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:440(save_entries)\n        2    0.000    0.000    0.031    0.015 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:458(make_entry)\n       94    0.000    0.000    0.025    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:422(apply_filters)\n      137    0.000    0.000    0.024    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:579(_apply_filter)\n       83    0.000    0.000    0.023    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:571(apply_dict_filters)\n        1    0.000    0.000    0.023    0.023 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:3038(get_gl_entries)\n        1    0.000    0.000    0.022    0.022 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:2185(repost_future_sle_and_gle)\n        1    0.000    0.000    0.018    0.018 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:338(make_entry)\n        1    0.000    0.000    0.017    0.017 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:2951(create_item_wise_repost_entries)\n        1    0.000    0.000    0.016    0.016 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:260(repost_current_voucher)\n        2    0.000    0.000    0.016    0.008 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:973(validate_item)\n        1    0.000    0.000    0.016    0.016 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:950(get_gl_entries)\n      137    0.002    0.000    0.016    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:595(_build_criterion_for_simple_filter)\n\n\n"
+ },
+ "reposts_queued": 1,
+ "repost_after_submit": {
+  "seconds": 3.098,
+  "queries": 2335,
+  "query_seconds": 1.199,
+  "top": [
+   {
+    "count": 271,
+    "seconds": 0.159,
+    "shape": "SELECT * FROM `tabStock Entry Detail` WHERE `parent`= %(parent)s AND `parenttype`= %(parenttype)s AND `parentfield`= %(parentfield)s ORDER B"
+   },
+   {
+    "count": 271,
+    "seconds": 0.127,
+    "shape": "SELECT * FROM `tabLanded Cost Taxes and Charges` WHERE `parent`= %(parent)s AND `parenttype`= %(parenttype)s AND `parentfield`= %(parentfiel"
+   },
+   {
+    "count": 118,
+    "seconds": 0.084,
+    "shape": "UPDATE `tabStock Entry` SET `owner`=%s, `creation`=%s, `modified`=%s, `modified_by`=%s, `docstatus`=%s, `idx`=%s, `company`=%s, `naming_seri"
+   },
+   {
+    "count": 152,
+    "seconds": 0.084,
+    "shape": "SELECT `name`,`warehouse`,`stock_value_difference`,`valuation_rate`,`voucher_detail_no`,`item_code`,`posting_date`,`posting_time`,`actual_qt"
+   },
+   {
+    "count": 118,
+    "seconds": 0.077,
+    "shape": "UPDATE `tabStock Entry Detail` SET `owner`=%s, `creation`=%s, `modified`=%s, `modified_by`=%s, `docstatus`=%s, `idx`=%s, `barcode`=%s, `has_"
+   },
+   {
+    "count": 160,
+    "seconds": 0.073,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `incoming_rate`=?,`outgoing_rate`=?,`valuation_rate`=?,`qty_after_transaction`=-?,`stock_value`=-?,`stock"
+   },
+   {
+    "count": 153,
+    "seconds": 0.07,
+    "shape": "SELECT * FROM `tabStock Entry` WHERE `name` = %s"
+   },
+   {
+    "count": 124,
+    "seconds": 0.066,
+    "shape": "SELECT `name` FROM `tabCost Center Allocation` WHERE `docstatus`=? AND `company`=%(param1)s AND `valid_from`<=? AND `main_cost_center`=%(par"
+   },
+   {
+    "count": 118,
+    "seconds": 0.057,
+    "shape": "SELECT * FROM `tabStock Entry` WHERE `name` = %s FOR UPDATE"
+   },
+   {
+    "count": 118,
+    "seconds": 0.045,
+    "shape": "UPDATE `tabStock Entry Detail` SET `basic_rate`=?,`modified`=%(param1)s,`modified_by`=%(param2)s WHERE `name`=%(param3)s"
+   },
+   {
+    "count": 85,
+    "seconds": 0.036,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `incoming_rate`=?,`outgoing_rate`=?,`valuation_rate`=?,`qty_after_transaction`=?,`stock_value`=?,`stock_v"
+   },
+   {
+    "count": 57,
+    "seconds": 0.034,
+    "shape": "SELECT `stock_value_difference` FROM `tabStock Ledger Entry` WHERE `voucher_type`=%(param1)s AND `voucher_no`=%(param2)s AND `voucher_detail"
+   }
+  ],
+  "profile": "         2907349 function calls (2814787 primitive calls) in 3.098 seconds\n\n   Ordered by: cumulative time\n   List reduced from 2035 to 296 due to restriction <'erpnext/|frappe/database'>\n   List reduced from 296 to 25 due to restriction <25>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        1    0.000    0.000    3.096    3.096 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:629(repost)\n        1    0.000    0.000    1.683    1.683 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:730(repost_sl_entries)\n        1    0.000    0.000    1.683    1.683 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:356(repost_future_sle)\n        1    0.000    0.000    1.675    1.675 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:690(__init__)\n        1    0.000    0.000    1.673    1.673 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:814(build)\n        1    0.003    0.003    1.398    1.398 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:876(repost_stock_ledgers)\n        1    0.000    0.000    1.362    1.362 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:750(repost_gl_entries)\n        1    0.003    0.003    1.360    1.360 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/utils.py:1763(repost_gle_for_stock_vouchers)\n      245    0.001    0.000    1.255    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1005(repost_stock_ledger_entry)\n      245    0.009    0.000    1.252    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1162(process_sle)\n     2335    0.026    0.000    1.119    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:200(sql)\n     2335    0.003    0.000    1.021    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:390(execute_query)\n      152    0.002    0.000    0.839    0.006 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:3038(get_gl_entries)\n      152    0.011    0.000    0.729    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:950(get_gl_entries)\n      118    0.002    0.000    0.519    0.004 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1924(recalculate_amounts_in_stock_entry)\n      614    0.005    0.000    0.465    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:614(get_values)\n      600    0.003    0.000    0.446    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:536(get_value)\n      245    0.001    0.000    0.414    0.002 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1888(update_outgoing_rate_on_transaction)\n      118    0.002    0.000    0.412    0.003 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1916(update_rate_on_stock_entry)\n      245    0.002    0.000    0.344    0.001 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1579(get_dynamic_incoming_outgoing_rate)\n       13    0.000    0.000    0.330    0.025 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:337(make_gl_entries)\n       13    0.000    0.000    0.308    0.024 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:30(make_gl_entries)\n       57    0.001    0.000    0.303    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1740(get_incoming_outgoing_rate_from_transaction)\n      649    0.010    0.000    0.278    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:225(get_query)\n        1    0.000    0.000    0.267    0.267 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1035(update_data_in_repost)\n\n\n"
+ },
+ "backdated_cancel": {
+  "seconds": 0.182,
+  "queries": 83,
+  "query_seconds": 0.051,
+  "top": [
+   {
+    "count": 1,
+    "seconds": 0.007,
+    "shape": "SELECT `tabDocField`.`parent`,`tabDocField`.`fieldname`,`tabDocType`.`issingle` `issingle` FROM `tabDocField` JOIN `tabDocType` ON `tabDocFi"
+   },
+   {
+    "count": 1,
+    "seconds": 0.002,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `stock_queue`=CONCAT(%(param1)s,`qty_after_transaction`+-?,%(param2)s,CASE WHEN `qty_after_transaction`+-"
+   },
+   {
+    "count": 1,
+    "seconds": 0.002,
+    "shape": "select `tabDocField`.parent, `tabDocType`.read_only, `tabDocType`.in_create, `tabDocField`.fieldname, `tabDocField`.options from `tabDocFiel"
+   },
+   {
+    "count": 1,
+    "seconds": 0.002,
+    "shape": "commit"
+   },
+   {
+    "count": 3,
+    "seconds": 0.001,
+    "shape": "SELECT MAX(`period_end_date`) FROM `tabPeriod Closing Voucher` WHERE `docstatus`=? AND `company`=%(param1)s ORDER BY `creation` DESC LIMIT ?"
+   },
+   {
+    "count": 2,
+    "seconds": 0.001,
+    "shape": "INSERT INTO `tabGL Entry` (`name`, `owner`, `creation`, `modified`, `modified_by`, `docstatus`, `idx`, `posting_date`, `transaction_date`, `"
+   },
+   {
+    "count": 2,
+    "seconds": 0.001,
+    "shape": "SELECT * FROM `tabStock Entry Detail` WHERE `parent`= %(parent)s AND `parenttype`= %(parenttype)s AND `parentfield`= %(parentfield)s ORDER B"
+   },
+   {
+    "count": 1,
+    "seconds": 0.001,
+    "shape": "SELECT `item_code`,`warehouse`,COUNT(`name`) `total_row` FROM `tabStock Ledger Entry` WHERE `warehouse`=%(param1)s AND `item_code` IN (%(par"
+   },
+   {
+    "count": 1,
+    "seconds": 0.001,
+    "shape": "SELECT `name`,`posting_date`,`posting_time`,`creation`,`voucher_no`,`item_code`,`batch_no`,`serial_and_batch_bundle`,`actual_qty`,`has_batch"
+   },
+   {
+    "count": 2,
+    "seconds": 0.001,
+    "shape": "SELECT `name` FROM `tabStock Closing Entry` WHERE `company`=%(param1)s AND `docstatus`=? AND `status`=%(param2)s AND `to_date`>=? ORDER BY `"
+   },
+   {
+    "count": 4,
+    "seconds": 0.001,
+    "shape": "SELECT `name` FROM `tabCurrency` WHERE `name`=%(param1)s LIMIT ?"
+   },
+   {
+    "count": 2,
+    "seconds": 0.001,
+    "shape": "SELECT `accounts_frozen_till_date` FROM `tabCompany` WHERE `name`=%(param1)s ORDER BY `creation` DESC LIMIT ?"
+   }
+  ],
+  "profile": "         111527 function calls (107783 primitive calls) in 0.182 seconds\n\n   Ordered by: cumulative time\n   List reduced from 1045 to 268 due to restriction <'erpnext/|frappe/database'>\n   List reduced from 268 to 25 due to restriction <25>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        1    0.000    0.000    0.091    0.091 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:801(on_cancel)\n        1    0.000    0.000    0.048    0.048 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:2862(update_stock_ledger)\n        1    0.000    0.000    0.048    0.048 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:1646(make_sl_entries)\n       83    0.001    0.000    0.048    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:200(sql)\n        1    0.000    0.000    0.045    0.045 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:161(make_sl_entries)\n       83    0.000    0.000    0.044    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:390(execute_query)\n       37    0.000    0.000    0.036    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:614(get_values)\n        1    0.000    0.000    0.026    0.026 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:1757(make_gl_entries_on_cancel)\n        1    0.000    0.000    0.026    0.026 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:337(make_gl_entries)\n       30    0.000    0.000    0.023    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:536(get_value)\n       43    0.006    0.000    0.022    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:225(get_query)\n        1    0.000    0.000    0.020    0.020 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:338(make_entry)\n        1    0.000    0.000    0.019    0.019 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:724(make_reverse_gl_entries)\n        1    0.000    0.000    0.017    0.017 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:2185(repost_future_sle_and_gle)\n        1    0.000    0.000    0.015    0.015 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:2951(create_item_wise_repost_entries)\n        2    0.000    0.000    0.014    0.007 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:458(make_entry)\n        1    0.000    0.000    0.010    0.010 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:260(repost_current_voucher)\n       43    0.000    0.000    0.010    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:422(apply_filters)\n       43    0.000    0.000    0.010    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:571(apply_dict_filters)\n       68    0.000    0.000    0.010    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:579(_apply_filter)\n        1    0.000    0.000    0.008    0.008 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_ledger_entry/stock_ledger_entry.py:302(on_submit)\n        1    0.000    0.000    0.008    0.008 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/serial_batch_bundle.py:86(__init__)\n        1    0.000    0.000    0.008    0.008 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/serial_batch_bundle.py:481(delink_serial_and_batch_bundle)\n        4    0.000    0.000    0.008    0.002 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:953(set_value)\n       68    0.001    0.000    0.007    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/query.py:595(_build_criterion_for_simple_filter)\n\n\n"
+ },
+ "repost_after_cancel": {
+  "seconds": 2.885,
+  "queries": 2204,
+  "query_seconds": 1.223,
+  "top": [
+   {
+    "count": 269,
+    "seconds": 0.17,
+    "shape": "SELECT * FROM `tabStock Entry Detail` WHERE `parent`= %(parent)s AND `parenttype`= %(parenttype)s AND `parentfield`= %(parentfield)s ORDER B"
+   },
+   {
+    "count": 269,
+    "seconds": 0.138,
+    "shape": "SELECT * FROM `tabLanded Cost Taxes and Charges` WHERE `parent`= %(parent)s AND `parenttype`= %(parenttype)s AND `parentfield`= %(parentfiel"
+   },
+   {
+    "count": 151,
+    "seconds": 0.09,
+    "shape": "SELECT `name`,`warehouse`,`stock_value_difference`,`valuation_rate`,`voucher_detail_no`,`item_code`,`posting_date`,`posting_time`,`actual_qt"
+   },
+   {
+    "count": 118,
+    "seconds": 0.085,
+    "shape": "UPDATE `tabStock Entry` SET `owner`=%s, `creation`=%s, `modified`=%s, `modified_by`=%s, `docstatus`=%s, `idx`=%s, `company`=%s, `naming_seri"
+   },
+   {
+    "count": 151,
+    "seconds": 0.082,
+    "shape": "SELECT * FROM `tabStock Entry` WHERE `name` = %s"
+   },
+   {
+    "count": 118,
+    "seconds": 0.077,
+    "shape": "UPDATE `tabStock Entry Detail` SET `owner`=%s, `creation`=%s, `modified`=%s, `modified_by`=%s, `docstatus`=%s, `idx`=%s, `barcode`=%s, `has_"
+   },
+   {
+    "count": 161,
+    "seconds": 0.074,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `incoming_rate`=?,`outgoing_rate`=?,`valuation_rate`=?,`qty_after_transaction`=-?,`stock_value`=-?,`stock"
+   },
+   {
+    "count": 118,
+    "seconds": 0.066,
+    "shape": "SELECT * FROM `tabStock Entry` WHERE `name` = %s FOR UPDATE"
+   },
+   {
+    "count": 118,
+    "seconds": 0.048,
+    "shape": "UPDATE `tabStock Entry Detail` SET `basic_rate`=?,`modified`=%(param1)s,`modified_by`=%(param2)s WHERE `name`=%(param3)s"
+   },
+   {
+    "count": 83,
+    "seconds": 0.041,
+    "shape": "UPDATE `tabStock Ledger Entry` SET `incoming_rate`=?,`outgoing_rate`=?,`valuation_rate`=?,`qty_after_transaction`=?,`stock_value`=?,`stock_v"
+   },
+   {
+    "count": 57,
+    "seconds": 0.04,
+    "shape": "SELECT `item_code`,`warehouse`,`posting_date`,`posting_time`,`posting_datetime`,`creation` FROM `tabStock Ledger Entry` WHERE `voucher_detai"
+   },
+   {
+    "count": 57,
+    "seconds": 0.037,
+    "shape": "SELECT `stock_value_difference` FROM `tabStock Ledger Entry` WHERE `voucher_type`=%(param1)s AND `voucher_no`=%(param2)s AND `voucher_detail"
+   }
+  ],
+  "profile": "         2508263 function calls (2432232 primitive calls) in 2.885 seconds\n\n   Ordered by: cumulative time\n   List reduced from 1380 to 299 due to restriction <'erpnext/|frappe/database'>\n   List reduced from 299 to 25 due to restriction <25>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n        1    0.000    0.000    2.882    2.882 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:629(repost)\n        1    0.000    0.000    1.585    1.585 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:730(repost_sl_entries)\n        1    0.000    0.000    1.585    1.585 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:356(repost_future_sle)\n        1    0.000    0.000    1.577    1.577 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:690(__init__)\n        1    0.000    0.000    1.576    1.576 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:814(build)\n        1    0.003    0.003    1.449    1.449 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:876(repost_stock_ledgers)\n      244    0.001    0.000    1.303    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1005(repost_stock_ledger_entry)\n      244    0.009    0.000    1.300    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1162(process_sle)\n        1    0.000    0.000    1.215    1.215 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/repost_item_valuation/repost_item_valuation.py:750(repost_gl_entries)\n        1    0.004    0.004    1.213    1.213 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/utils.py:1763(repost_gle_for_stock_vouchers)\n     2204    0.027    0.000    1.148    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:200(sql)\n     2204    0.003    0.000    1.051    0.000 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:390(execute_query)\n      151    0.002    0.000    0.677    0.004 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:3038(get_gl_entries)\n      151    0.011    0.000    0.566    0.004 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:950(get_gl_entries)\n      118    0.002    0.000    0.547    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1924(recalculate_amounts_in_stock_entry)\n      244    0.001    0.000    0.447    0.002 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1888(update_outgoing_rate_on_transaction)\n      118    0.002    0.000    0.445    0.004 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1916(update_rate_on_stock_entry)\n      244    0.001    0.000    0.341    0.001 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1579(get_dynamic_incoming_outgoing_rate)\n       13    0.000    0.000    0.331    0.025 /home/frappe/frappe-bench/apps/erpnext/erpnext/controllers/stock_controller.py:337(make_gl_entries)\n       13    0.000    0.000    0.313    0.024 /home/frappe/frappe-bench/apps/erpnext/erpnext/accounts/general_ledger.py:30(make_gl_entries)\n       57    0.001    0.000    0.305    0.005 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1740(get_incoming_outgoing_rate_from_transaction)\n      490    0.003    0.000    0.301    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:614(get_values)\n      476    0.003    0.000    0.286    0.001 /home/frappe/frappe-bench/apps/frappe/frappe/database/database.py:536(get_value)\n      244    0.006    0.000    0.266    0.001 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/stock_ledger.py:1345(update_sle_valuation_fields)\n      118    0.001    0.000    0.239    0.002 /home/frappe/frappe-bench/apps/erpnext/erpnext/stock/doctype/stock_entry/stock_entry.py:2019(calculate_rate_and_amount)\n\n\n"
+ }
+}
