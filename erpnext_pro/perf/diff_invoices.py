@@ -11,6 +11,8 @@ Each scenario lists steps:
       line is taxed alone through ERPNext item tax templates, one tax row per tax used.
       "inclusive": true means the prices already include the tax (ERPNext "included in print rate").
       A line may name a "unit": "Box" (cement and nails: 1 Box = 12 Nos); qty and rate are then per box.
+      A line may have "discount": "10" (percent off its rate); the invoice may have
+      "discount": {"percent": "5"} or {"amount": "50"} (off the net total, before tax).
       "withhold": "2" (purchases) withholds that percent of the amount before tax from the supplier
       (ERPNext tax withholding, no thresholds), owed to the tax office instead.
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
@@ -211,6 +213,39 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Discounts (D-093): a percent off a line's price; a percent or an amount off the
+			# whole invoice before tax, spread over the lines. Credit notes take back their share.
+			"name": "discounts",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "discount": {"amount": "100.01"}, "lines": [
+					{"item": "cement", "qty": "10", "rate": "1000.07"},
+					{"item": "nails", "qty": "30", "rate": "12.33", "discount": "7.5"},
+					{"item": "delivery", "qty": "1.5", "rate": "40.01"},
+				]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "discount": {"percent": "3.33"}, "lines": [
+					{"item": "cement", "qty": "3", "rate": "1500.33", "discount": "12.5"},
+					{"item": "delivery", "qty": "2.5", "rate": "333.33"},
+					{"item": "nails", "qty": "7", "rate": "19.99"},
+				]},
+				{"op": "sale", "ref": "S2", "date": d(2), "tax": None, "lines": [
+					{"item": "nails", "qty": "3", "rate": "19.99", "discount": "33.33"},
+				]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(3), "amount": "1000"},
+				# (Returning 1 and 1 gives a tax of exactly 238.695: Ferrum's exact decimals round it
+				# to 238.70, ERPNext's floating point sees 238.69499.. and gives 238.69. Not a rule to
+				# copy, so the quantities avoid an exact half cent.)
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(4), "lines": [{"line": 0, "qty": "1"}, {"line": 1, "qty": "2"}]},
+				# An amount off the whole invoice: ERPNext copies all of it onto any credit note,
+				# Ferrum gives back each returned line's share (D-093), so only a full return
+				# is compared.
+				{"op": "purchase", "ref": "P2", "date": d(5), "tax": "15", "discount": {"amount": "7.77"}, "lines": [
+					{"item": "delivery", "qty": "2", "rate": "40.01"},
+					{"item": "delivery", "qty": "1", "rate": "19.99", "discount": "10"},
+				]},
+				{"op": "credit", "ref": "C2", "invoice": "P2", "date": d(6), "lines": [{"line": 0, "qty": "2"}, {"line": 1, "qty": "1"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -341,6 +376,9 @@ def _invoice(step, items, customer, supplier):
 		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
 		if line.get("unit"):
 			row.update(uom=line["unit"], conversion_factor=UNITS[line["unit"]])
+		if line.get("discount"):
+			# ERPNext works the rate out from the list price only when no rate is given.
+			row.update(price_list_rate=float(line["rate"]), discount_percentage=float(line["discount"]), rate=0)
 		if line["item"] != "delivery":
 			row["warehouse"] = f"{WAREHOUSE} - {ABBR}"
 		elif not sale:
@@ -370,6 +408,12 @@ def _invoice(step, items, customer, supplier):
 		if not sale:
 			tax.update(category="Total", add_deduct_tax="Add")
 		inv.append("taxes", tax)
+	if step.get("discount"):
+		inv.apply_discount_on = "Net Total"
+		if "percent" in step["discount"]:
+			inv.additional_discount_percentage = float(step["discount"]["percent"])
+		else:
+			inv.discount_amount = float(step["discount"]["amount"])
 	inv.insert()
 	inv.submit()
 	return inv
