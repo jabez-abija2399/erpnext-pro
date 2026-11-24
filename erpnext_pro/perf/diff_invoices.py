@@ -10,6 +10,11 @@ Each scenario lists steps:
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
   {"op": "cancel_payment", "payment": "PAY1"}
   {"op": "cancel_invoice", "invoice": "S1"}
+  {"op": "order", "ref": "SO1", "kind": "sales"|"purchase", "date": ..., "lines": [{"item", "qty", "rate"}]}
+  {"op": "deliver", "ref": "DN1", "order": "SO1", "date": ..., "lines": [{"line": 0, "qty": "2"}]}
+      (a delivery note for a sales order, a purchase receipt for a purchase order)
+  {"op": "bill_order", "ref": "S1", "order": "SO1", "date": ..., "tax": ..., "lines": [{"line": 0, "qty": "1"}],
+   "from": "DN1" (optional: bill everything that delivery brought, without moving stock again)}
 Items: "cement" and "nails" are stock items (FIFO, whole units); "delivery" is a service
 (not stock) sold or bought by the kg, so quantities may have decimals.
 """
@@ -107,6 +112,23 @@ def _scenarios(seed: int = 11):
 				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(3), "lines": [{"line": 0, "qty": "1"}, {"line": 1, "qty": "1"}]},
 				{"op": "credit", "ref": "C2", "invoice": "P1", "date": d(4), "lines": [{"line": 0, "qty": "2"}]},
 				{"op": "credit", "ref": "C3", "invoice": "S1", "date": d(5), "lines": [{"line": 0, "qty": "2"}]},
+			],
+		},
+		{
+			# Orders invoiced in parts; delivered or received first, invoiced later.
+			"name": "orders_and_deliveries",
+			"steps": [
+				{"op": "purchase", "ref": "P0", "date": d(0), "tax": None, "lines": [{"item": "cement", "qty": "20", "rate": "1000"}]},
+				{"op": "order", "ref": "SO1", "kind": "sales", "date": d(1), "lines": [{"item": "cement", "qty": "4", "rate": "1500"}, {"item": "delivery", "qty": "1", "rate": "200"}]},
+				{"op": "bill_order", "ref": "S1", "order": "SO1", "date": d(2), "tax": "15", "lines": [{"line": 0, "qty": "1"}]},
+				{"op": "bill_order", "ref": "S2", "order": "SO1", "date": d(3), "tax": "15", "lines": [{"line": 0, "qty": "3"}, {"line": 1, "qty": "1"}]},
+				{"op": "order", "ref": "SO2", "kind": "sales", "date": d(4), "lines": [{"item": "cement", "qty": "3", "rate": "1500"}]},
+				{"op": "deliver", "ref": "DN1", "order": "SO2", "date": d(5), "lines": [{"line": 0, "qty": "3"}]},
+				{"op": "bill_order", "ref": "S3", "order": "SO2", "date": d(6), "tax": None, "lines": [{"line": 0, "qty": "3"}], "from": "DN1"},
+				{"op": "order", "ref": "PO1", "kind": "purchase", "date": d(7), "lines": [{"item": "cement", "qty": "10", "rate": "900"}]},
+				{"op": "deliver", "ref": "GR1", "order": "PO1", "date": d(8), "lines": [{"line": 0, "qty": "6"}]},
+				{"op": "bill_order", "ref": "P1", "order": "PO1", "date": d(9), "tax": "15", "lines": [{"line": 0, "qty": "6"}], "from": "GR1"},
+				{"op": "bill_order", "ref": "P2", "order": "PO1", "date": d(10), "tax": None, "lines": [{"line": 0, "qty": "4"}]},
 			],
 		},
 	]
@@ -238,6 +260,106 @@ def _credit(step, invoice):
 	return ret
 
 
+def _order(step, items, customer, supplier):
+	sale = step["kind"] == "sales"
+	o = frappe.new_doc("Sales Order" if sale else "Purchase Order")
+	o.company = COMPANY
+	o.transaction_date = step["date"]
+	o.disable_rounded_total = 1
+	if sale:
+		o.customer = customer
+		o.delivery_date = step["date"]
+	else:
+		o.supplier = supplier
+		o.schedule_date = step["date"]
+	for line in step["lines"]:
+		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
+		if line["item"] != "delivery":
+			row["warehouse"] = f"{WAREHOUSE} - {ABBR}"
+		if sale:
+			row["delivery_date"] = step["date"]
+		else:
+			row["schedule_date"] = step["date"]
+			if line["item"] == "delivery":
+				row["expense_account"] = f"Miscellaneous Expenses - {ABBR}"
+		o.append("items", row)
+	o.insert()
+	o.submit()
+	return o
+
+
+def _keep_lines(doc, order, step, detail_field):
+	"""Keep only the rows for the order lines the step names, with the step's quantities."""
+	wanted = {order.items[line["line"]].name: float(line["qty"]) for line in step["lines"]}
+	keep = []
+	for row in doc.items:
+		if row.get(detail_field) in wanted:
+			row.qty = wanted[row.get(detail_field)]
+			if row.meta.has_field("received_qty"):
+				row.received_qty = row.qty
+			keep.append(row)
+	doc.items = keep
+
+
+def _deliver(step, order):
+	sale = order.doctype == "Sales Order"
+	if sale:
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note as make
+	else:
+		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt as make
+	doc = make(order.name)
+	doc.set_posting_time = 1
+	doc.posting_date = step["date"]
+	_keep_lines(doc, order, step, "so_detail" if sale else "purchase_order_item")
+	for row in doc.items:
+		row.warehouse = f"{WAREHOUSE} - {ABBR}"
+	doc.insert()
+	doc.submit()
+	return doc
+
+
+def _bill_order(step, order, docs):
+	"""An invoice from the order (stock moves with it) or from a delivery (it already moved)."""
+	sale = order.doctype == "Sales Order"
+	if step.get("from"):
+		delivery = docs[step["from"]]
+		if sale:
+			from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice as make
+		else:
+			from erpnext.stock.doctype.purchase_receipt.purchase_receipt import make_purchase_invoice as make
+		inv = make(delivery.name)
+		inv.update_stock = 0
+	else:
+		if sale:
+			from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice as make
+		else:
+			from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice as make
+		inv = make(order.name)
+		_keep_lines(inv, order, step, "so_detail" if sale else "po_detail")
+		inv.update_stock = 1
+		for row in inv.items:
+			if frappe.db.get_value("Item", row.item_code, "is_stock_item"):
+				row.warehouse = f"{WAREHOUSE} - {ABBR}"
+	inv.set_posting_time = 1
+	inv.posting_date = step["date"]
+	inv.due_date = step["date"]
+	inv.disable_rounded_total = 1
+	if not sale:
+		inv.bill_date = step["date"]
+	inv.set("taxes", [])
+	if step["tax"]:
+		tax = {
+			"charge_type": "On Net Total", "rate": float(step["tax"]),
+			"account_head": f"VAT {'Output' if sale else 'Input'} - {ABBR}", "description": "VAT",
+		}
+		if not sale:
+			tax.update(category="Total", add_deduct_tax="Add")
+		inv.append("taxes", tax)
+	inv.insert()
+	inv.submit()
+	return inv
+
+
 def _pay(step, invoice):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -289,6 +411,14 @@ def _run(out, seed):
 			elif step["op"] == "pay":
 				docs[step["invoice"]].reload()
 				docs[step["ref"]] = _pay(step, docs[step["invoice"]])
+				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "order":
+				docs[step["ref"]] = _order(step, items, customer, supplier)
+			elif step["op"] == "deliver":
+				docs[step["ref"]] = _deliver(step, docs[step["order"]])
+				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "bill_order":
+				docs[step["ref"]] = _bill_order(step, docs[step["order"]], docs)
 				vouchers.append(docs[step["ref"]].name)
 			elif step["op"] == "credit":
 				docs[step["ref"]] = _credit(step, docs[step["invoice"]])
