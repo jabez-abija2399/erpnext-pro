@@ -1,0 +1,292 @@
+"""Differential test data: run invoice, tax and payment scenarios through ERPNext and record
+the money results, mapped to Ferrum's accounts. Ferrum's test
+(ferrum-erp: crates/db/tests/erpnext_invoices.rs) runs the same steps and must agree.
+Dev/test sites only (developer_mode).
+
+    bench --site erp.localhost execute erpnext_pro.perf.diff_invoices.run --kwargs '{"out": "/tmp/erpnext_invoices_reference.json"}'
+
+Each scenario lists steps:
+  {"op": "purchase"|"sale", "ref": "S1", "date": ..., "lines": [{"item": "cement", "qty": "2", "rate": "10.50"}], "tax": "15" or null}
+  {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
+  {"op": "cancel_payment", "payment": "PAY1"}
+  {"op": "cancel_invoice", "invoice": "S1"}
+Items: "cement" and "nails" are stock items (FIFO, whole units); "delivery" is a service
+(not stock) sold or bought by the kg, so quantities may have decimals.
+"""
+
+import json
+import random
+from decimal import Decimal
+
+import frappe
+from frappe.utils import add_days
+
+from erpnext_pro.perf.demo_data import ABBR, COMPANY, _guard
+
+WAREHOUSE = "Diff Invoices"
+
+# ERPNext account -> Ferrum account code. Anything else appearing is reported as unmapped.
+ACCOUNTS = {
+	f"Cash - {ABBR}": "1000",
+	f"Debtors - {ABBR}": "1200",
+	f"Stock In Hand - {ABBR}": "1300",
+	f"VAT Input - {ABBR}": "1400",
+	f"Creditors - {ABBR}": "2000",
+	f"VAT Output - {ABBR}": "2100",
+	f"Stock Received But Not Billed - {ABBR}": "2300",
+	f"Sales - {ABBR}": "4000",
+	f"Cost of Goods Sold - {ABBR}": "5000",
+	f"Miscellaneous Expenses - {ABBR}": "5900",
+}
+
+
+def _scenarios(seed: int = 11):
+	rng = random.Random(seed)
+	d = lambda i: str(add_days("2026-02-01", i))  # noqa: E731
+	scenarios = [
+		{
+			"name": "service_sale_with_tax_paid_in_two_parts",
+			"steps": [
+				{"op": "sale", "ref": "S1", "date": d(0), "tax": "15", "lines": [{"item": "delivery", "qty": "3", "rate": "333.33"}]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(1), "amount": "500"},
+				{"op": "pay", "ref": "PAY2", "invoice": "S1", "date": d(2), "amount": "649.99"},
+			],
+		},
+		{
+			"name": "buy_stock_then_sell_it_fifo",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "lines": [{"item": "cement", "qty": "10", "rate": "1000"}]},
+				{"op": "purchase", "ref": "P2", "date": d(1), "tax": None, "lines": [{"item": "cement", "qty": "5", "rate": "1100.50"}]},
+				{"op": "sale", "ref": "S1", "date": d(2), "tax": "15", "lines": [{"item": "cement", "qty": "12", "rate": "1500"}, {"item": "delivery", "qty": "1", "rate": "250"}]},
+				{"op": "pay", "ref": "PAY1", "invoice": "P1", "date": d(3), "amount": "11500"},
+				{"op": "pay", "ref": "PAY2", "invoice": "S1", "date": d(4), "amount": "10000"},
+			],
+		},
+		{
+			"name": "cancel_a_payment_then_the_invoices",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "lines": [{"item": "nails", "qty": "40", "rate": "12.25"}, {"item": "delivery", "qty": "2", "rate": "45"}]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "lines": [{"item": "nails", "qty": "15", "rate": "19.99"}]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(2), "amount": "100"},
+				{"op": "cancel_payment", "payment": "PAY1"},
+				{"op": "cancel_invoice", "invoice": "S1"},
+				{"op": "sale", "ref": "S2", "date": d(3), "tax": None, "lines": [{"item": "nails", "qty": "40", "rate": "20"}]},
+				{"op": "cancel_invoice", "invoice": "S2"},
+			],
+		},
+		{
+			"name": "awkward_amounts_and_rounding",
+			"steps": [
+				{"op": "sale", "ref": "S1", "date": d(0), "tax": "15", "lines": [
+					{"item": "delivery", "qty": "2.5", "rate": "19.99"},
+					{"item": "delivery", "qty": "0.75", "rate": "13.33"},
+					{"item": "delivery", "qty": "1.125", "rate": "0.99"},
+				]},
+				{"op": "sale", "ref": "S2", "date": d(1), "tax": "15", "lines": [{"item": "delivery", "qty": "1", "rate": "0.03"}]},
+				{"op": "purchase", "ref": "P1", "date": d(2), "tax": "15", "lines": [{"item": "delivery", "qty": "3.3", "rate": "7.77"}]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(3), "amount": "10.01"},
+			],
+		},
+		{
+			# Exact half cents: banker's rounding (to even) and rounding half up differ here.
+			"name": "half_cents",
+			"steps": [
+				{"op": "sale", "ref": "S1", "date": d(0), "tax": None, "lines": [{"item": "delivery", "qty": "0.5", "rate": "0.05"}]},
+				{"op": "sale", "ref": "S2", "date": d(1), "tax": "15", "lines": [{"item": "delivery", "qty": "1", "rate": "0.30"}]},
+				{"op": "sale", "ref": "S3", "date": d(2), "tax": "15", "lines": [{"item": "delivery", "qty": "1", "rate": "0.70"}]},
+				{"op": "purchase", "ref": "P1", "date": d(3), "tax": "15", "lines": [{"item": "delivery", "qty": "0.5", "rate": "0.85"}]},
+			],
+		},
+	]
+	# Random business: buy and sell stock and services, pay some, cancel some.
+	steps, stock, refs, open_inv, payments = [], 0, 0, [], []
+	for i in range(30):
+		roll = rng.random()
+		refs += 1
+		tax = rng.choice(["15", None])
+		if roll < 0.3 or stock < 5:
+			q = rng.randint(5, 30)
+			steps.append({"op": "purchase", "ref": f"P{refs}", "date": d(i), "tax": tax, "lines": [
+				{"item": "cement", "qty": str(q), "rate": f"{rng.randint(90000, 120000) / 100:.2f}"},
+			]})
+			stock += q
+			open_inv.append(f"P{refs}")
+		elif roll < 0.7:
+			q = rng.randint(1, stock)
+			lines = [{"item": "cement", "qty": str(q), "rate": f"{rng.randint(130000, 170000) / 100:.2f}"}]
+			if rng.random() < 0.5:
+				lines.append({"item": "delivery", "qty": f"{rng.randint(1, 400) / 100:.2f}", "rate": f"{rng.randint(1000, 9999) / 100:.2f}"})
+			steps.append({"op": "sale", "ref": f"S{refs}", "date": d(i), "tax": tax, "lines": lines})
+			stock -= q
+			open_inv.append(f"S{refs}")
+		elif open_inv:
+			inv = rng.choice(open_inv)
+			open_inv.remove(inv)
+			steps.append({"op": "pay", "ref": f"PAY{refs}", "invoice": inv, "date": d(i), "amount": "full"})
+			payments.append(f"PAY{refs}")
+	if payments:
+		steps.append({"op": "cancel_payment", "payment": payments[-1]})
+	scenarios.append({"name": "random_month_of_business", "steps": steps})
+	return scenarios
+
+
+def _ensure_masters():
+	if not frappe.db.exists("Warehouse", f"{WAREHOUSE} - {ABBR}"):
+		frappe.get_doc({"doctype": "Warehouse", "warehouse_name": WAREHOUSE, "company": COMPANY}).insert()
+	for name, parent, kind in (("VAT Output", "Duties and Taxes", "Tax"), ("VAT Input", "Current Assets", "Tax")):
+		if not frappe.db.exists("Account", f"{name} - {ABBR}"):
+			frappe.get_doc({
+				"doctype": "Account", "account_name": name, "company": COMPANY,
+				"parent_account": f"{parent} - {ABBR}", "account_type": kind,
+			}).insert()
+	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 0)
+	for uom in ("Nos", "Kg"):
+		if not frappe.db.exists("UOM", uom):
+			frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert()
+	frappe.db.set_value("UOM", "Kg", "must_be_whole_number", 0)
+
+
+def _items(run_id):
+	codes = {}
+	for key, stock in (("cement", 1), ("nails", 1), ("delivery", 0)):
+		code = f"DIFFINV-{key}-{run_id}"
+		frappe.get_doc({
+			"doctype": "Item", "item_code": code, "item_name": code, "item_group": "Products",
+			"stock_uom": "Nos" if stock else "Kg", "is_stock_item": stock, "valuation_method": "FIFO",
+		}).insert()
+		codes[key] = code
+	return codes
+
+
+def _party(doctype, name):
+	if not frappe.db.exists(doctype, name):
+		field = "customer_name" if doctype == "Customer" else "supplier_name"
+		frappe.get_doc({"doctype": doctype, field: name}).insert()
+	return name
+
+
+def _invoice(step, items, customer, supplier):
+	sale = step["op"] == "sale"
+	inv = frappe.new_doc("Sales Invoice" if sale else "Purchase Invoice")
+	inv.company = COMPANY
+	inv.set_posting_time = 1
+	inv.posting_date = step["date"]
+	inv.due_date = step["date"]
+	inv.update_stock = 1
+	inv.disable_rounded_total = 1
+	if sale:
+		inv.customer = customer
+	else:
+		inv.supplier = supplier
+		inv.bill_date = step["date"]
+	for line in step["lines"]:
+		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
+		if line["item"] != "delivery":
+			row["warehouse"] = f"{WAREHOUSE} - {ABBR}"
+		elif not sale:
+			row["expense_account"] = f"Miscellaneous Expenses - {ABBR}"
+		if sale:
+			row["income_account"] = f"Sales - {ABBR}"
+		inv.append("items", row)
+	if step["tax"]:
+		tax = {
+			"charge_type": "On Net Total", "rate": float(step["tax"]),
+			"account_head": f"VAT {'Output' if sale else 'Input'} - {ABBR}", "description": "VAT",
+		}
+		if not sale:
+			tax.update(category="Total", add_deduct_tax="Add")
+		inv.append("taxes", tax)
+	inv.insert()
+	inv.submit()
+	return inv
+
+
+def _pay(step, invoice):
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	amount = invoice.outstanding_amount if step["amount"] == "full" else float(step["amount"])
+	pe = get_payment_entry(invoice.doctype, invoice.name, party_amount=amount)
+	pe.posting_date = step["date"]
+	pe.mode_of_payment = "Cash"
+	if invoice.doctype == "Sales Invoice":
+		pe.paid_to = f"Cash - {ABBR}"
+	else:
+		pe.paid_from = f"Cash - {ABBR}"
+	pe.paid_amount = pe.received_amount = amount
+	pe.references[0].allocated_amount = amount
+	pe.insert()
+	pe.submit()
+	step["amount"] = str(Decimal(str(amount)).quantize(Decimal("0.01")))
+	return pe
+
+
+def run(out: str = "/tmp/erpnext_invoices_reference.json", seed: int = 11, rounding: str = "Commercial Rounding"):
+	"""Ferrum rounds exact half cents up, like ERPNext's "Commercial Rounding" (Ferrum decision
+	D-011), so the reference is made with that setting; the site's own setting is put back."""
+	_guard()
+	_ensure_masters()
+	previous = frappe.db.get_single_value("System Settings", "rounding_method")
+	frappe.db.set_single_value("System Settings", "rounding_method", rounding)
+	frappe.db.commit()
+	frappe.clear_cache()
+	try:
+		return _run(out, int(seed))
+	finally:
+		frappe.db.set_single_value("System Settings", "rounding_method", previous)
+		frappe.db.commit()
+		frappe.clear_cache()
+
+
+def _run(out, seed):
+	results = []
+	for s in _scenarios(seed):
+		run_id = frappe.generate_hash(length=6)
+		items = _items(run_id)
+		customer = _party("Customer", f"Diff Customer {run_id}")
+		supplier = _party("Supplier", f"Diff Supplier {run_id}")
+		docs, vouchers = {}, []
+		for step in s["steps"]:
+			if step["op"] in ("sale", "purchase"):
+				docs[step["ref"]] = _invoice(step, items, customer, supplier)
+				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "pay":
+				docs[step["invoice"]].reload()
+				docs[step["ref"]] = _pay(step, docs[step["invoice"]])
+				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "cancel_payment":
+				frappe.get_doc("Payment Entry", docs[step["payment"]].name).cancel()
+			elif step["op"] == "cancel_invoice":
+				d = docs[step["invoice"]]
+				frappe.get_doc(d.doctype, d.name).cancel()
+		frappe.db.commit()
+		rows = frappe.db.sql(
+			"""SELECT account, SUM(debit) - SUM(credit) FROM `tabGL Entry`
+			   WHERE voucher_no IN %(v)s AND is_cancelled = 0 GROUP BY account""",
+			{"v": vouchers},
+		)
+		balances, unmapped = {}, {}
+		for account, amount in rows:
+			amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+			if amount == 0:
+				continue
+			if account in ACCOUNTS:
+				balances[ACCOUNTS[account]] = str(amount)
+			else:
+				unmapped[account] = str(amount)
+		invoices = {}
+		for ref, d in docs.items():
+			if d.doctype in ("Sales Invoice", "Purchase Invoice"):
+				d.reload()
+				invoices[ref] = {
+					"net": str(Decimal(str(d.net_total)).quantize(Decimal("0.01"))),
+					"tax": str(Decimal(str(d.total_taxes_and_charges)).quantize(Decimal("0.01"))),
+					"total": str(Decimal(str(d.grand_total)).quantize(Decimal("0.01"))),
+					"owed": str(Decimal(str(d.outstanding_amount)).quantize(Decimal("0.01"))),
+					"cancelled": d.docstatus == 2,
+				}
+		results.append({**s, "erpnext": {"balances": balances, "unmapped": unmapped, "invoices": invoices}})
+	versions = {app: frappe.get_attr(f"{app}.__version__") for app in ("frappe", "erpnext")}
+	rounding = frappe.db.get_single_value("System Settings", "rounding_method")
+	with open(out, "w") as f:
+		json.dump({"source": "ERPNext", "versions": versions, "rounding_method": rounding, "scenarios": results}, f, indent=1)
+	return {"scenarios": len(results), "out": out, "versions": versions, "rounding_method": rounding}
