@@ -10,6 +10,8 @@ Each scenario lists steps:
       A line may carry its own "tax" ("15" = VAT, "2" = turnover tax, null = none): then each
       line is taxed alone through ERPNext item tax templates, one tax row per tax used.
       "inclusive": true means the prices already include the tax (ERPNext "included in print rate").
+      "withhold": "2" (purchases) withholds that percent of the amount before tax from the supplier
+      (ERPNext tax withholding, no thresholds), owed to the tax office instead.
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
   {"op": "cancel_payment", "payment": "PAY1"}
   {"op": "cancel_invoice", "invoice": "S1"}
@@ -43,6 +45,7 @@ ACCOUNTS = {
 	f"VAT Output - {ABBR}": "2100",
 	f"TOT Output - {ABBR}": "2100",
 	f"TOT Input - {ABBR}": "1400",
+	f"TDS Payable - {ABBR}": "2150",
 	f"Stock Received But Not Billed - {ABBR}": "2300",
 	f"Sales - {ABBR}": "4000",
 	f"Cost of Goods Sold - {ABBR}": "5000",
@@ -53,6 +56,7 @@ ACCOUNTS = {
 # Line tax -> (VAT %, turnover tax %) in its item tax template; "none" taxes nothing.
 LINE_TAXES = {"15": (15, 0), "2": (0, 2), "none": (0, 0)}
 TAX_NAMES = {"15": "VAT", "2": "TOT"}
+WITHHOLDING = "DIFFINV WHT 2"
 
 
 def _scenarios(seed: int = 11):
@@ -171,6 +175,22 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Withholding tax (D-029): 2% of the amount before tax is kept back from the
+			# supplier and owed to the tax office; VAT is still claimed in full.
+			"name": "withholding",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "withhold": "2", "lines": [
+					{"item": "cement", "qty": "10", "rate": "1000.07"},
+					{"item": "delivery", "qty": "2.5", "rate": "333.33"},
+				]},
+				{"op": "pay", "ref": "PAY1", "invoice": "P1", "date": d(1), "amount": "5000"},
+				{"op": "purchase", "ref": "P2", "date": d(2), "tax": None, "withhold": "2", "lines": [
+					{"item": "nails", "qty": "7", "rate": "19.99"},
+				]},
+				{"op": "credit", "ref": "C1", "invoice": "P1", "date": d(3), "lines": [{"line": 0, "qty": "2"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -226,6 +246,7 @@ def _ensure_masters():
 	for name, parent, kind in (
 		("VAT Output", "Duties and Taxes", "Tax"), ("VAT Input", "Current Assets", "Tax"),
 		("TOT Output", "Duties and Taxes", "Tax"), ("TOT Input", "Current Assets", "Tax"),
+		("TDS Payable", "Duties and Taxes", "Tax"),
 	):
 		if not frappe.db.exists("Account", f"{name} - {ABBR}"):
 			frappe.get_doc({
@@ -233,6 +254,15 @@ def _ensure_masters():
 				"parent_account": f"{parent} - {ABBR}", "account_type": kind,
 			}).insert()
 	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 0)
+	if not frappe.db.exists("Tax Withholding Category", WITHHOLDING):
+		frappe.get_doc({
+			"doctype": "Tax Withholding Category", "category_name": WITHHOLDING,
+			"tax_deduction_basis": "Net Total", "round_off_tax_amount": 0,
+			"disable_cumulative_threshold": 1, "disable_transaction_threshold": 1,
+			"rates": [{"tax_withholding_rate": 2, "single_threshold": 0, "cumulative_threshold": 0,
+			           "from_date": "2000-01-01", "to_date": "2099-12-31"}],
+			"accounts": [{"company": COMPANY, "account": f"TDS Payable - {ABBR}"}],
+		}).insert(set_name=WITHHOLDING)
 	# One item tax template per line tax: its own tax at its rate, every other tax at 0.
 	for key, (vat, tot) in LINE_TAXES.items():
 		title = f"DIFFINV {key}"
@@ -282,6 +312,9 @@ def _invoice(step, items, customer, supplier):
 	else:
 		inv.supplier = supplier
 		inv.bill_date = step["date"]
+		if step.get("withhold"):
+			frappe.db.set_value("Supplier", supplier, "tax_withholding_category", WITHHOLDING)
+			inv.apply_tds = 1
 	for line in step["lines"]:
 		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
 		if line["item"] != "delivery":
