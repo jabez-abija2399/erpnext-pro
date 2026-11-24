@@ -10,6 +10,7 @@ Each scenario lists steps:
       A line may carry its own "tax" ("15" = VAT, "2" = turnover tax, null = none): then each
       line is taxed alone through ERPNext item tax templates, one tax row per tax used.
       "inclusive": true means the prices already include the tax (ERPNext "included in print rate").
+      A line may name a "unit": "Box" (cement and nails: 1 Box = 12 Nos); qty and rate are then per box.
       "withhold": "2" (purchases) withholds that percent of the amount before tax from the supplier
       (ERPNext tax withholding, no thresholds), owed to the tax office instead.
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
@@ -56,6 +57,7 @@ ACCOUNTS = {
 # Line tax -> (VAT %, turnover tax %) in its item tax template; "none" taxes nothing.
 LINE_TAXES = {"15": (15, 0), "2": (0, 2), "none": (0, 0)}
 TAX_NAMES = {"15": "VAT", "2": "TOT"}
+UNITS = {"Box": 12}
 WITHHOLDING = "DIFFINV WHT 2"
 
 
@@ -191,6 +193,24 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Invoices in another unit (D-030): bought and sold by the box (12 each) and by the
+			# piece; stock is kept in pieces. A credit note returns a box.
+			"name": "units",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "lines": [
+					{"item": "cement", "qty": "2", "rate": "1150.00", "unit": "Box"},
+					{"item": "nails", "qty": "3", "rate": "140.35", "unit": "Box"},
+				]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "lines": [
+					{"item": "cement", "qty": "5", "rate": "120.00"},
+					{"item": "cement", "qty": "1", "rate": "1399.99", "unit": "Box"},
+					{"item": "nails", "qty": "2", "rate": "185.55", "unit": "Box"},
+				]},
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(2), "lines": [{"line": 1, "qty": "1"}]},
+				{"op": "credit", "ref": "C2", "invoice": "P1", "date": d(3), "lines": [{"line": 1, "qty": "1"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -273,7 +293,7 @@ def _ensure_masters():
 			rates.append({"tax_type": f"VAT {side} - {ABBR}", "tax_rate": vat})
 			rates.append({"tax_type": f"TOT {side} - {ABBR}", "tax_rate": tot})
 		frappe.get_doc({"doctype": "Item Tax Template", "title": title, "company": COMPANY, "taxes": rates}).insert()
-	for uom in ("Nos", "Kg"):
+	for uom in ("Nos", "Kg", "Box"):
 		if not frappe.db.exists("UOM", uom):
 			frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert()
 	frappe.db.set_value("UOM", "Kg", "must_be_whole_number", 0)
@@ -286,6 +306,8 @@ def _items(run_id):
 		frappe.get_doc({
 			"doctype": "Item", "item_code": code, "item_name": code, "item_group": "Products",
 			"stock_uom": "Nos" if stock else "Kg", "is_stock_item": stock, "valuation_method": "FIFO",
+			# Another unit (D-051/D-030 in Ferrum): 1 Box = 12 of the stock unit.
+			"uoms": [{"uom": "Nos", "conversion_factor": 1}, {"uom": "Box", "conversion_factor": 12}] if stock else [],
 		}).insert()
 		codes[key] = code
 	return codes
@@ -317,6 +339,8 @@ def _invoice(step, items, customer, supplier):
 			inv.apply_tds = 1
 	for line in step["lines"]:
 		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
+		if line.get("unit"):
+			row.update(uom=line["unit"], conversion_factor=UNITS[line["unit"]])
 		if line["item"] != "delivery":
 			row["warehouse"] = f"{WAREHOUSE} - {ABBR}"
 		elif not sale:
