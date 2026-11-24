@@ -7,6 +7,8 @@ Dev/test sites only (developer_mode).
 
 Each scenario lists steps:
   {"op": "purchase"|"sale", "ref": "S1", "date": ..., "lines": [{"item": "cement", "qty": "2", "rate": "10.50"}], "tax": "15" or null}
+      A line may carry its own "tax" ("15" = VAT, "2" = turnover tax, null = none): then each
+      line is taxed alone through ERPNext item tax templates, one tax row per tax used.
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
   {"op": "cancel_payment", "payment": "PAY1"}
   {"op": "cancel_invoice", "invoice": "S1"}
@@ -38,11 +40,18 @@ ACCOUNTS = {
 	f"VAT Input - {ABBR}": "1400",
 	f"Creditors - {ABBR}": "2000",
 	f"VAT Output - {ABBR}": "2100",
+	f"TOT Output - {ABBR}": "2100",
+	f"TOT Input - {ABBR}": "1400",
 	f"Stock Received But Not Billed - {ABBR}": "2300",
 	f"Sales - {ABBR}": "4000",
 	f"Cost of Goods Sold - {ABBR}": "5000",
 	f"Miscellaneous Expenses - {ABBR}": "5900",
 }
+
+
+# Line tax -> (VAT %, turnover tax %) in its item tax template; "none" taxes nothing.
+LINE_TAXES = {"15": (15, 0), "2": (0, 2), "none": (0, 0)}
+TAX_NAMES = {"15": "VAT", "2": "TOT"}
 
 
 def _scenarios(seed: int = 11):
@@ -115,6 +124,27 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# A tax per line (D-027): VAT on some lines, turnover tax on others, none on the rest;
+			# each tax rounded once on its own lines. Then a credit note takes back the right tax.
+			"name": "a_tax_per_line",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": None, "lines": [
+					{"item": "cement", "qty": "10", "rate": "1000.07", "tax": "15"},
+					{"item": "nails", "qty": "30", "rate": "12.33", "tax": "2"},
+					{"item": "delivery", "qty": "1.5", "rate": "40.01", "tax": None},
+				]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": None, "lines": [
+					{"item": "cement", "qty": "3", "rate": "1500.33", "tax": "15"},
+					{"item": "delivery", "qty": "2.5", "rate": "333.33", "tax": "2"},
+					{"item": "nails", "qty": "7", "rate": "19.99", "tax": None},
+					{"item": "cement", "qty": "1", "rate": "0.03", "tax": "15"},
+				]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(2), "amount": "2000"},
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(3), "lines": [{"line": 0, "qty": "1"}, {"line": 1, "qty": "0.5"}, {"line": 2, "qty": "2"}]},
+				{"op": "credit", "ref": "C2", "invoice": "P1", "date": d(4), "lines": [{"line": 1, "qty": "10"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -167,13 +197,26 @@ def _scenarios(seed: int = 11):
 def _ensure_masters():
 	if not frappe.db.exists("Warehouse", f"{WAREHOUSE} - {ABBR}"):
 		frappe.get_doc({"doctype": "Warehouse", "warehouse_name": WAREHOUSE, "company": COMPANY}).insert()
-	for name, parent, kind in (("VAT Output", "Duties and Taxes", "Tax"), ("VAT Input", "Current Assets", "Tax")):
+	for name, parent, kind in (
+		("VAT Output", "Duties and Taxes", "Tax"), ("VAT Input", "Current Assets", "Tax"),
+		("TOT Output", "Duties and Taxes", "Tax"), ("TOT Input", "Current Assets", "Tax"),
+	):
 		if not frappe.db.exists("Account", f"{name} - {ABBR}"):
 			frappe.get_doc({
 				"doctype": "Account", "account_name": name, "company": COMPANY,
 				"parent_account": f"{parent} - {ABBR}", "account_type": kind,
 			}).insert()
 	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 0)
+	# One item tax template per line tax: its own tax at its rate, every other tax at 0.
+	for key, (vat, tot) in LINE_TAXES.items():
+		title = f"DIFFINV {key}"
+		if frappe.db.exists("Item Tax Template", f"{title} - {ABBR}"):
+			continue
+		rates = []
+		for side in ("Output", "Input"):
+			rates.append({"tax_type": f"VAT {side} - {ABBR}", "tax_rate": vat})
+			rates.append({"tax_type": f"TOT {side} - {ABBR}", "tax_rate": tot})
+		frappe.get_doc({"doctype": "Item Tax Template", "title": title, "company": COMPANY, "taxes": rates}).insert()
 	for uom in ("Nos", "Kg"):
 		if not frappe.db.exists("UOM", uom):
 			frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert()
@@ -221,7 +264,18 @@ def _invoice(step, items, customer, supplier):
 			row["expense_account"] = f"Miscellaneous Expenses - {ABBR}"
 		if sale:
 			row["income_account"] = f"Sales - {ABBR}"
+		if "tax" in line:
+			row["item_tax_template"] = f"DIFFINV {line['tax'] or 'none'} - {ABBR}"
 		inv.append("items", row)
+	line_taxes = sorted({line["tax"] for line in step["lines"] if line.get("tax")})
+	for rate in line_taxes:
+		tax = {
+			"charge_type": "On Net Total", "rate": float(rate),
+			"account_head": f"{TAX_NAMES[rate]} {'Output' if sale else 'Input'} - {ABBR}", "description": TAX_NAMES[rate],
+		}
+		if not sale:
+			tax.update(category="Total", add_deduct_tax="Add")
+		inv.append("taxes", tax)
 	if step["tax"]:
 		tax = {
 			"charge_type": "On Net Total", "rate": float(step["tax"]),
@@ -440,7 +494,9 @@ def _run(out, seed):
 			if amount == 0:
 				continue
 			if account in ACCOUNTS:
-				balances[ACCOUNTS[account]] = str(amount)
+				# Several ERPNext accounts may map to one Ferrum account (VAT and turnover tax).
+				code = ACCOUNTS[account]
+				balances[code] = str(Decimal(balances.get(code, "0")) + amount)
 			else:
 				unmapped[account] = str(amount)
 		invoices = {}
