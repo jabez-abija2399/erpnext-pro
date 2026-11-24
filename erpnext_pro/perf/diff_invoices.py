@@ -97,6 +97,18 @@ def _scenarios(seed: int = 11):
 				{"op": "purchase", "ref": "P1", "date": d(3), "tax": "15", "lines": [{"item": "delivery", "qty": "0.5", "rate": "0.85"}]},
 			],
 		},
+		{
+			# Credit notes (returns): part of a sale and part of a purchase come back.
+			"name": "credit_notes",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "lines": [{"item": "cement", "qty": "10", "rate": "1000"}]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "lines": [{"item": "cement", "qty": "4", "rate": "1500"}, {"item": "delivery", "qty": "1", "rate": "200"}]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(2), "amount": "1000"},
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(3), "lines": [{"line": 0, "qty": "1"}, {"line": 1, "qty": "1"}]},
+				{"op": "credit", "ref": "C2", "invoice": "P1", "date": d(4), "lines": [{"line": 0, "qty": "2"}]},
+				{"op": "credit", "ref": "C3", "invoice": "S1", "date": d(5), "lines": [{"line": 0, "qty": "2"}]},
+			],
+		},
 	]
 	# Random business: buy and sell stock and services, pay some, cancel some.
 	steps, stock, refs, open_inv, payments = [], 0, 0, [], []
@@ -201,6 +213,31 @@ def _invoice(step, items, customer, supplier):
 	return inv
 
 
+def _credit(step, invoice):
+	"""A return (credit note) against `invoice`: only the listed lines, the given quantities.
+	It lowers the original's outstanding amount (update_outstanding_for_self = 0)."""
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	ret = make_return_doc(invoice.doctype, invoice.name)
+	ret.set_posting_time = 1
+	ret.posting_date = step["date"]
+	ret.due_date = step["date"]
+	if ret.meta.has_field("update_outstanding_for_self"):
+		ret.update_outstanding_for_self = 0
+	wanted = {line["line"]: line["qty"] for line in step["lines"]}
+	keep = []
+	for i, row in enumerate(ret.items):
+		if i in wanted:
+			row.qty = -float(wanted[i])
+			if row.meta.has_field("received_qty"):
+				row.received_qty = row.qty
+			keep.append(row)
+	ret.items = keep
+	ret.insert()
+	ret.submit()
+	return ret
+
+
 def _pay(step, invoice):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -253,6 +290,9 @@ def _run(out, seed):
 				docs[step["invoice"]].reload()
 				docs[step["ref"]] = _pay(step, docs[step["invoice"]])
 				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "credit":
+				docs[step["ref"]] = _credit(step, docs[step["invoice"]])
+				vouchers.append(docs[step["ref"]].name)
 			elif step["op"] == "cancel_payment":
 				frappe.get_doc("Payment Entry", docs[step["payment"]].name).cancel()
 			elif step["op"] == "cancel_invoice":
@@ -278,10 +318,12 @@ def _run(out, seed):
 			if d.doctype in ("Sales Invoice", "Purchase Invoice"):
 				d.reload()
 				invoices[ref] = {
-					"net": str(Decimal(str(d.net_total)).quantize(Decimal("0.01"))),
-					"tax": str(Decimal(str(d.total_taxes_and_charges)).quantize(Decimal("0.01"))),
-					"total": str(Decimal(str(d.grand_total)).quantize(Decimal("0.01"))),
+					# Returns carry negative amounts in ERPNext; Ferrum shows them positive.
+					"net": str(abs(Decimal(str(d.net_total))).quantize(Decimal("0.01"))),
+					"tax": str(abs(Decimal(str(d.total_taxes_and_charges))).quantize(Decimal("0.01"))),
+					"total": str(abs(Decimal(str(d.grand_total))).quantize(Decimal("0.01"))),
 					"owed": str(Decimal(str(d.outstanding_amount)).quantize(Decimal("0.01"))),
+					"credit_note": bool(d.get("is_return")),
 					"cancelled": d.docstatus == 2,
 				}
 		results.append({**s, "erpnext": {"balances": balances, "unmapped": unmapped, "invoices": invoices}})
