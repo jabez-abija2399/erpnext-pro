@@ -9,6 +9,7 @@ Each scenario lists steps:
   {"op": "purchase"|"sale", "ref": "S1", "date": ..., "lines": [{"item": "cement", "qty": "2", "rate": "10.50"}], "tax": "15" or null}
       A line may carry its own "tax" ("15" = VAT, "2" = turnover tax, null = none): then each
       line is taxed alone through ERPNext item tax templates, one tax row per tax used.
+      "inclusive": true means the prices already include the tax (ERPNext "included in print rate").
   {"op": "pay", "ref": "PAY1", "invoice": "S1", "date": ..., "amount": "100"}
   {"op": "cancel_payment", "payment": "PAY1"}
   {"op": "cancel_invoice", "invoice": "S1"}
@@ -145,6 +146,31 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Prices that already include tax (D-028): the net is worked out from each price;
+			# rounding left over goes to the last tax, so the total is exactly what was typed.
+			"name": "prices_include_tax",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": None, "inclusive": True, "lines": [
+					{"item": "cement", "qty": "10", "rate": "1150.00", "tax": "15"},
+					{"item": "nails", "qty": "30", "rate": "12.55", "tax": "2"},
+					{"item": "delivery", "qty": "1", "rate": "40.01", "tax": None},
+				]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": None, "inclusive": True, "lines": [
+					{"item": "cement", "qty": "3", "rate": "1725.38", "tax": "15"},
+					{"item": "delivery", "qty": "2.5", "rate": "340.00", "tax": "2"},
+					{"item": "nails", "qty": "7", "rate": "19.99", "tax": None},
+					{"item": "cement", "qty": "1", "rate": "0.05", "tax": "15"},
+				]},
+				{"op": "sale", "ref": "S2", "date": d(2), "tax": "15", "inclusive": True, "lines": [
+					{"item": "delivery", "qty": "3", "rate": "333.33"},
+					{"item": "delivery", "qty": "1", "rate": "0.07"},
+				]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(3), "amount": "1000"},
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(4), "lines": [{"line": 0, "qty": "1"}, {"line": 1, "qty": "0.5"}]},
+				{"op": "credit", "ref": "C2", "invoice": "P1", "date": d(5), "lines": [{"line": 0, "qty": "2"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -267,11 +293,13 @@ def _invoice(step, items, customer, supplier):
 		if "tax" in line:
 			row["item_tax_template"] = f"DIFFINV {line['tax'] or 'none'} - {ABBR}"
 		inv.append("items", row)
-	line_taxes = sorted({line["tax"] for line in step["lines"] if line.get("tax")})
+	# One tax row per tax, in the order the taxes first appear on the lines (Ferrum's order).
+	line_taxes = list(dict.fromkeys(line["tax"] for line in step["lines"] if line.get("tax")))
 	for rate in line_taxes:
 		tax = {
 			"charge_type": "On Net Total", "rate": float(rate),
 			"account_head": f"{TAX_NAMES[rate]} {'Output' if sale else 'Input'} - {ABBR}", "description": TAX_NAMES[rate],
+			"included_in_print_rate": 1 if step.get("inclusive") else 0,
 		}
 		if not sale:
 			tax.update(category="Total", add_deduct_tax="Add")
@@ -280,6 +308,7 @@ def _invoice(step, items, customer, supplier):
 		tax = {
 			"charge_type": "On Net Total", "rate": float(step["tax"]),
 			"account_head": f"VAT {'Output' if sale else 'Input'} - {ABBR}", "description": "VAT",
+			"included_in_print_rate": 1 if step.get("inclusive") else 0,
 		}
 		if not sale:
 			tax.update(category="Total", add_deduct_tax="Add")
