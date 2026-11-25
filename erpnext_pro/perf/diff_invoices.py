@@ -60,6 +60,8 @@ ACCOUNTS = {
 	f"Miscellaneous Expenses - {ABBR}": "5900",
 	f"Round Off - {ABBR}": "5950",
 	f"Exchange Gain/Loss - {ABBR}": "4920",
+	# Landed costs (Ferrum D-056) are charged against this in the comparison.
+	f"Expenses Included In Valuation - {ABBR}": "5900",
 }
 
 
@@ -269,6 +271,18 @@ def _scenarios(seed: int = 11):
 					{"item": "cement", "qty": "1", "rate": "0.07"},
 				]},
 				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(3), "lines": [{"line": 0, "qty": "1"}]},
+			],
+		},
+		{
+			# Freight on goods already received, shared by value (Ferrum D-056); stock sold before
+			# and after it costs more from the day the goods came in.
+			"name": "landed_costs",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": None, "lines": [{"item": "cement", "qty": "10", "rate": "1000"}]},
+				{"op": "purchase", "ref": "P2", "date": d(1), "tax": None, "lines": [{"item": "cement", "qty": "5", "rate": "1200"}]},
+				{"op": "sale", "ref": "S1", "date": d(2), "tax": None, "lines": [{"item": "cement", "qty": "6", "rate": "1500"}]},
+				{"op": "landed", "ref": "L1", "date": d(3), "invoices": ["P1", "P2"], "amount": "300.01"},
+				{"op": "sale", "ref": "S2", "date": d(4), "tax": None, "lines": [{"item": "cement", "qty": "4", "rate": "1500"}]},
 			],
 		},
 		{
@@ -608,6 +622,30 @@ def _bill_order(step, order, docs):
 	return inv
 
 
+from erpnext_pro.perf.bench_repost import _process_pending_reposts
+
+
+def _landed(step, invoices):
+	"""A Landed Cost Voucher over purchase invoices that updated stock, shared by amount."""
+	lcv = frappe.new_doc("Landed Cost Voucher")
+	lcv.company = COMPANY
+	lcv.posting_date = step["date"]
+	lcv.distribute_charges_based_on = "Amount"
+	for inv in invoices:
+		lcv.append("purchase_receipts", {
+			"receipt_document_type": "Purchase Invoice", "receipt_document": inv.name,
+			"supplier": inv.supplier, "grand_total": inv.grand_total,
+		})
+	lcv.get_items_from_purchase_receipts()
+	lcv.append("taxes", {
+		"description": "Freight", "amount": float(step["amount"]),
+		"expense_account": f"Expenses Included In Valuation - {ABBR}",
+	})
+	lcv.insert()
+	lcv.submit()
+	return lcv
+
+
 def _pay(step, invoice):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -688,6 +726,9 @@ def _run(out, seed):
 			elif step["op"] == "bill_order":
 				docs[step["ref"]] = _bill_order(step, docs[step["order"]], docs)
 				vouchers.append(docs[step["ref"]].name)
+			elif step["op"] == "landed":
+				docs[step["ref"]] = _landed(step, [docs[r] for r in step["invoices"]])
+				vouchers.append(docs[step["ref"]].name)
 			elif step["op"] == "credit":
 				docs[step["ref"]] = _credit(step, docs[step["invoice"]])
 				vouchers.append(docs[step["ref"]].name)
@@ -696,6 +737,9 @@ def _run(out, seed):
 			elif step["op"] == "cancel_invoice":
 				d = docs[step["invoice"]]
 				frappe.get_doc(d.doctype, d.name).cancel()
+			# Back-dated changes (landed costs) repost in a background job in ERPNext: run it
+			# now, so later steps and the balances see the finished values.
+			_process_pending_reposts()
 		frappe.db.commit()
 		# ERPNext books exchange gains and losses in journal entries of their own, linked to the
 		# invoice or payment they settle.
