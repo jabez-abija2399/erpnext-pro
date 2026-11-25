@@ -11,6 +11,8 @@ Each scenario lists steps:
       line is taxed alone through ERPNext item tax templates, one tax row per tax used.
       "inclusive": true means the prices already include the tax (ERPNext "included in print rate").
       A line may name a "unit": "Box" (cement and nails: 1 Box = 12 Nos); qty and rate are then per box.
+      An invoice may be in another currency: "currency": "EUR", "rate": "1.0837" (1 EUR in the
+      company's USD); its prices are then in EUR and the books in USD.
       A line may have "discount": "10" (percent off its rate); the invoice may have
       "discount": {"percent": "5"} or {"amount": "50"} (off the net total, before tax).
       "withhold": "2" (purchases) withholds that percent of the amount before tax from the supplier
@@ -49,10 +51,14 @@ ACCOUNTS = {
 	f"TOT Output - {ABBR}": "2100",
 	f"TOT Input - {ABBR}": "1400",
 	f"TDS Payable - {ABBR}": "2150",
+	# Party accounts in EUR (ERPNext needs one per currency); in USD on the books like Ferrum's.
+	f"Debtors EUR - {ABBR}": "1200",
+	f"Creditors EUR - {ABBR}": "2000",
 	f"Stock Received But Not Billed - {ABBR}": "2300",
 	f"Sales - {ABBR}": "4000",
 	f"Cost of Goods Sold - {ABBR}": "5000",
 	f"Miscellaneous Expenses - {ABBR}": "5900",
+	f"Round Off - {ABBR}": "5950",
 }
 
 
@@ -246,6 +252,25 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Invoices in another currency (D-095): prices in EUR, books in USD at the invoice's
+			# rate; VAT, a line discount and a credit note too. (Payments in EUR come next.)
+			"name": "foreign_currency",
+			"steps": [
+				{"op": "purchase", "ref": "P1", "date": d(0), "tax": "15", "currency": "EUR", "rate": "1.0837", "lines": [
+					{"item": "cement", "qty": "10", "rate": "920.33"},
+					{"item": "delivery", "qty": "1.5", "rate": "36.91"},
+				]},
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "currency": "EUR", "rate": "1.0912", "lines": [
+					{"item": "cement", "qty": "3", "rate": "1375.55", "discount": "5"},
+					{"item": "delivery", "qty": "2.5", "rate": "305.47"},
+				]},
+				{"op": "sale", "ref": "S2", "date": d(2), "tax": None, "currency": "EUR", "rate": "1.0899", "lines": [
+					{"item": "cement", "qty": "1", "rate": "0.07"},
+				]},
+				{"op": "credit", "ref": "C1", "invoice": "S1", "date": d(3), "lines": [{"line": 0, "qty": "1"}]},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -309,6 +334,13 @@ def _ensure_masters():
 				"parent_account": f"{parent} - {ABBR}", "account_type": kind,
 			}).insert()
 	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 0)
+	for name, parent, kind in (("Debtors EUR", "Accounts Receivable", "Receivable"), ("Creditors EUR", "Accounts Payable", "Payable")):
+		if not frappe.db.exists("Account", f"{name} - {ABBR}"):
+			frappe.db.set_value("Currency", "EUR", "enabled", 1)
+			frappe.get_doc({
+				"doctype": "Account", "account_name": name, "company": COMPANY,
+				"parent_account": f"{parent} - {ABBR}", "account_type": kind, "account_currency": "EUR",
+			}).insert()
 	if not frappe.db.exists("Tax Withholding Category", WITHHOLDING):
 		frappe.get_doc({
 			"doctype": "Tax Withholding Category", "category_name": WITHHOLDING,
@@ -372,6 +404,15 @@ def _invoice(step, items, customer, supplier):
 		if step.get("withhold"):
 			frappe.db.set_value("Supplier", supplier, "tax_withholding_category", WITHHOLDING)
 			inv.apply_tds = 1
+	if step.get("currency"):
+		frappe.db.set_value("Currency", step["currency"], "enabled", 1)
+		inv.currency = step["currency"]
+		inv.conversion_rate = float(step["rate"])
+		inv.plc_conversion_rate = float(step["rate"])
+		if sale:
+			inv.debit_to = f"Debtors {step['currency']} - {ABBR}"
+		else:
+			inv.credit_to = f"Creditors {step['currency']} - {ABBR}"
 	for line in step["lines"]:
 		row = {"item_code": items[line["item"]], "qty": float(line["qty"]), "rate": float(line["rate"]), "conversion_factor": 1}
 		if line.get("unit"):
