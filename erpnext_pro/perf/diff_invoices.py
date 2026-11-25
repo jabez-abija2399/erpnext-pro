@@ -59,6 +59,7 @@ ACCOUNTS = {
 	f"Cost of Goods Sold - {ABBR}": "5000",
 	f"Miscellaneous Expenses - {ABBR}": "5900",
 	f"Round Off - {ABBR}": "5950",
+	f"Exchange Gain/Loss - {ABBR}": "4920",
 }
 
 
@@ -271,6 +272,25 @@ def _scenarios(seed: int = 11):
 			],
 		},
 		{
+			# Paid in the invoice's currency at another rate: exchange gain or loss.
+			"name": "foreign_payments",
+			"steps": [
+				{"op": "sale", "ref": "S1", "date": d(1), "tax": "15", "currency": "EUR", "rate": "1.1", "lines": [
+					{"item": "delivery", "qty": "2", "rate": "1210.37"},
+				]},
+				{"op": "pay", "ref": "PAY1", "invoice": "S1", "date": d(2), "amount": "1000", "rate": "1.15"},
+				{"op": "pay", "ref": "PAY2", "invoice": "S1", "date": d(3), "amount": "full", "rate": "1.0537"},
+				{"op": "purchase", "ref": "P1", "date": d(4), "tax": "15", "currency": "EUR", "rate": "1.1", "lines": [
+					{"item": "delivery", "qty": "3", "rate": "333.33"},
+				]},
+				{"op": "pay", "ref": "PAY3", "invoice": "P1", "date": d(5), "amount": "500", "rate": "1.12"},
+				{"op": "sale", "ref": "S2", "date": d(6), "tax": None, "currency": "EUR", "rate": "1.09", "lines": [
+					{"item": "delivery", "qty": "1", "rate": "100"},
+				]},
+				{"op": "pay", "ref": "PAY4", "invoice": "S2", "date": d(7), "amount": "40", "rate": "1.09"},
+			],
+		},
+		{
 			# Orders invoiced in parts; delivered or received first, invoiced later.
 			"name": "orders_and_deliveries",
 			"steps": [
@@ -321,6 +341,9 @@ def _scenarios(seed: int = 11):
 
 
 def _ensure_masters():
+	# Exchange gains and losses on payments in another currency go here.
+	if not frappe.db.get_value("Company", COMPANY, "exchange_gain_loss_account"):
+		frappe.db.set_value("Company", COMPANY, "exchange_gain_loss_account", f"Exchange Gain/Loss - {ABBR}")
 	if not frappe.db.exists("Warehouse", f"{WAREHOUSE} - {ABBR}"):
 		frappe.get_doc({"doctype": "Warehouse", "warehouse_name": WAREHOUSE, "company": COMPANY}).insert()
 	for name, parent, kind in (
@@ -589,6 +612,15 @@ def _pay(step, invoice):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 	amount = invoice.outstanding_amount if step["amount"] == "full" else float(step["amount"])
+	if step.get("rate"):
+		# ERPNext looks up the day's rate itself (it can't reach a rate service here).
+		frappe.get_doc({
+			"doctype": "Currency Exchange", "date": step["date"], "from_currency": invoice.currency,
+			"to_currency": frappe.db.get_value("Company", COMPANY, "default_currency"),
+			"exchange_rate": float(step["rate"]), "for_buying": 1, "for_selling": 1,
+		}).insert(ignore_if_duplicate=True)
+		frappe.db.set_value("Currency Exchange", {"date": step["date"], "from_currency": invoice.currency},
+			"exchange_rate", float(step["rate"]))
 	pe = get_payment_entry(invoice.doctype, invoice.name, party_amount=amount)
 	pe.posting_date = step["date"]
 	pe.mode_of_payment = "Cash"
@@ -596,7 +628,18 @@ def _pay(step, invoice):
 		pe.paid_to = f"Cash - {ABBR}"
 	else:
 		pe.paid_from = f"Cash - {ABBR}"
-	pe.paid_amount = pe.received_amount = amount
+	if step.get("rate"):
+		# In the invoice's currency at the payment's own rate; cash stays in the company's.
+		rate = float(step["rate"])
+		if invoice.doctype == "Sales Invoice":
+			pe.source_exchange_rate, pe.target_exchange_rate = rate, 1
+			pe.paid_amount, pe.received_amount = amount, round(amount * rate, 2)
+		else:
+			pe.source_exchange_rate, pe.target_exchange_rate = 1, rate
+			pe.paid_amount, pe.received_amount = round(amount * rate, 2), amount
+		pe.base_paid_amount = pe.base_received_amount = round(amount * rate, 2)
+	else:
+		pe.paid_amount = pe.received_amount = amount
 	pe.references[0].allocated_amount = amount
 	pe.insert()
 	pe.submit()
@@ -654,6 +697,16 @@ def _run(out, seed):
 				d = docs[step["invoice"]]
 				frappe.get_doc(d.doctype, d.name).cancel()
 		frappe.db.commit()
+		# ERPNext books exchange gains and losses in journal entries of their own, linked to the
+		# invoice or payment they settle.
+		if vouchers:
+			vouchers += frappe.db.sql_list(
+				"""SELECT DISTINCT je.name FROM `tabJournal Entry` je
+				   JOIN `tabJournal Entry Account` a ON a.parent = je.name
+				   WHERE je.voucher_type = 'Exchange Gain Or Loss' AND je.docstatus = 1
+				     AND a.reference_name IN %(v)s""",
+				{"v": vouchers},
+			)
 		rows = frappe.db.sql(
 			"""SELECT account, SUM(debit) - SUM(credit) FROM `tabGL Entry`
 			   WHERE voucher_no IN %(v)s AND is_cancelled = 0 GROUP BY account""",
